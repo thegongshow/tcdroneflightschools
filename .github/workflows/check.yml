@@ -1,0 +1,31 @@
+name: Check drone schools
+on:
+  schedule:
+    - cron: "0 14 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+  issues: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install playwright && playwright install --with-deps chromium
+      - run: python scraper/scrape.py
+      - name: Save changes
+        run: |
+          git config user.name "drone-school-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add docs/schools.json
+          git diff --cached --quiet || (git commit -m "Update schools $(date -u +%F)" && git push)
+      - name: Open an issue when there are new schools
+        if: ${{ hashFiles('new_schools.md') != '' }}
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh issue create --title "New drone flight schools ($(date -u +%F))" --body-file new_schools.md
+      - name: Keep debug page if the run failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with: { name: debug, path: debug.html, if-no-files-found: ignore }
