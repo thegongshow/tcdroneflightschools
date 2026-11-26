@@ -4,8 +4,8 @@ import json, re, sys, datetime, pathlib
 URL = "https://tc.canada.ca/en/aviation/drone-safety/drone-pilot-licensing/find-drone-flight-school"
 DATA = pathlib.Path("docs/schools.json")
 NEW_MD = pathlib.Path("new_schools.md")
+SCHEMA = 2
 
-# Preferred: ask the page's own DataTable for every row, even ones on other pages.
 JS_API = """() => {
   const clean = h => { const d = document.createElement('div'); d.innerHTML = String(h ?? ''); return d.textContent.replace(/\\s+/g,' ').trim(); };
   if (!(window.jQuery && jQuery.fn.dataTable)) return null;
@@ -17,7 +17,6 @@ JS_API = """() => {
   return null;
 }"""
 
-# Fallback: plain table rows in the page after showing the largest page size.
 JS_DOM = """() => {
   const clean = h => h.textContent.replace(/\\s+/g,' ').trim();
   const sel = document.querySelector('select[name$="_length"]');
@@ -27,6 +26,24 @@ JS_DOM = """() => {
 
 def norm(s):
     return re.sub(r"\s+", " ", s.lower()).strip()
+
+def parse_row(r):
+    """Row layout: [name+address+contact run together, street, street, city (EN), city (FR), '',
+    email, phone, website, areas (EN), areas (FR)]."""
+    big = r[0]
+    if len(r) < 9:
+        return {"name": big, "areas": ", ".join(r[1:]).strip()}
+    street = r[1]
+    name = big
+    if street:
+        i = big.find(street, 1)
+        if i > 0:
+            name = big[:i]
+    city = re.sub(r"\s*Canada\s*$", "", r[3]).strip()
+    areas = r[-2].strip()
+    where = " · ".join(x for x in (city, "Serves: " + areas if areas else "") if x)
+    return {"name": name.strip(), "areas": where,
+            "email": r[-5], "phone": r[-4], "website": r[-3]}
 
 def fetch_rows():
     from playwright.sync_api import sync_playwright
@@ -51,7 +68,7 @@ def fetch_rows():
             rows = page.evaluate(JS_DOM)
         pathlib.Path("debug.html").write_text(page.content(), encoding="utf-8")
         b.close()
-    return [{"name": r[0], "areas": ", ".join(r[1:]).strip()} for r in rows if r and r[0]]
+    return [parse_row(r) for r in rows if r and r[0]]
 
 def merge(prev, rows, today, now):
     old = {norm(s["name"]): s for s in prev.get("schools", [])}
@@ -63,18 +80,17 @@ def merge(prev, rows, today, now):
             continue
         seen.add(k)
         if k in old:
-            s = old[k]; s["areas"] = r["areas"] or s["areas"]; s["name"] = r["name"]
+            s = old[k]; s.update({a: b for a, b in r.items() if b})
         else:
-            s = {"name": r["name"], "areas": r["areas"], "firstSeen": None if first else today}
+            s = dict(r); s["firstSeen"] = None if first else today
             if not first: added.append(s)
         s["lastSeen"] = today
         schools.append(s)
-    removed = prev.get("removed", [])
-    gone = [dict(name=s["name"], areas=s["areas"], removedOn=today) for k, s in old.items() if k not in seen]
-    removed = (gone + removed)[:50]
+    gone = [dict(name=s["name"], areas=s.get("areas", ""), removedOn=today) for k, s in old.items() if k not in seen]
+    removed = (gone + prev.get("removed", []))[:50]
     schools.sort(key=lambda s: s["name"].lower())
-    out = {"lastChecked": now, "lastChanged": today if (added or gone) else prev.get("lastChanged"),
-           "count": len(schools), "baseline": first or prev.get("baseline", False) and not added,
+    out = {"v": SCHEMA, "lastChecked": now, "lastChanged": today if (added or gone) else prev.get("lastChanged"),
+           "count": len(schools), "baseline": first or (prev.get("baseline", False) and not added),
            "schools": schools, "removed": removed}
     return out, added, gone
 
@@ -83,6 +99,8 @@ def main():
     if not rows:
         print("No rows found; leaving data untouched."); sys.exit(1)
     prev = json.loads(DATA.read_text()) if DATA.exists() else {}
+    if prev.get("v") != SCHEMA:
+        prev = {}   # older, messier format: start a fresh baseline
     if prev.get("count") and len(rows) < prev["count"] * 0.5:
         print(f"Only {len(rows)} rows vs {prev['count']} before; looks like a scrape problem."); sys.exit(1)
     now = datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
@@ -92,7 +110,7 @@ def main():
     print(f"{len(rows)} schools, {len(added)} new, {len(gone)} removed")
     if added:
         NEW_MD.write_text("New drone flight schools on Transport Canada’s list:\n\n" +
-            "\n".join(f"- **{s['name']}** — {s['areas'] or 'no area listed'}" for s in added) + f"\n\n[Full list]({URL})\n", encoding="utf-8")
+            "\n".join(f"- **{s['name']}** — {s.get('areas') or 'no area listed'}" for s in added) + f"\n\n[Full list]({URL})\n", encoding="utf-8")
 
 if __name__ == "__main__":
     main()
