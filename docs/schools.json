@@ -1,9 +1,9 @@
 {
  "v": 2,
- "lastChecked": "2026-11-26T14:15:40Z",
- "lastChanged": null,
- "count": 258,
- "baseline": true,
+ "lastChecked": "2026-11-26T14:50:38Z",
+ "lastChanged": "2026-11-26",
+ "count": 259,
+ "baseline": false,
  "schools": [
   {
    "name": "0003D Drone School",
@@ -1749,6 +1749,15 @@
    "phone": "647-313-2485",
    "website": "http://www.uavtraining.ca/",
    "firstSeen": null,
+   "lastSeen": "2026-11-26"
+  },
+  {
+   "name": "S K E Y E P A T H INC.",
+   "areas": "Concord Ontario L4K 3T8 · Serves: Canada-Wide",
+   "email": "Solutions@skeyepath.com",
+   "phone": "647-527-8961",
+   "website": "https://skeyepath.com/",
+   "firstSeen": "2026-11-26",
    "lastSeen": "2026-11-26"
   },
   {
