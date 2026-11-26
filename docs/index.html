@@ -1,30 +1,47 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Transport Canada Drone Drone School Tracker</title>
+<title>Drone School Tracker</title>
 <style>
-:root{--bg:#f6f7f9;--card:#fff;--text:#1b2330;--muted:#667085;--line:#e2e6ec;--accent:#0b63ce;--new:#0a7d3c;--newbg:#e2f6ea;--gone:#b42318;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
-@media (prefers-color-scheme:dark){:root{--bg:#10151c;--card:#19202a;--text:#e8edf4;--muted:#9aa6b5;--line:#2a3340;--accent:#5aa2ff;--new:#59d98b;--newbg:#12301f;--gone:#ff8a80;color-scheme:dark}}
+:root{--bg:#f6f7f9;--card:#fff;--text:#1b2330;--muted:#667085;--line:#e2e6ec;--accent:#0b63ce;--on:#fff;--new:#0a7d3c;--newbg:#e2f6ea;--gone:#b42318;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#10151c;--card:#19202a;--text:#e8edf4;--muted:#9aa6b5;--line:#2a3340;--accent:#5aa2ff;--on:#06121f;--new:#59d98b;--newbg:#12301f;--gone:#ff8a80;color-scheme:dark}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 main{max-width:720px;margin:0 auto;padding:16px}h1{font-size:1.4rem;margin:8px 0 2px}h2{font-size:1.05rem;margin:0 0 8px}
 .sub{color:var(--muted);font-size:.9rem;margin:0 0 14px}.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
 input{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px;font:inherit}
+button{background:var(--accent);color:var(--on);border:0;border-radius:8px;padding:11px 16px;font:inherit;font-weight:600;cursor:pointer}
+button.sec{background:transparent;color:var(--accent);border:1px solid var(--line);padding:8px 12px;font-weight:500;font-size:.9rem}
+button:disabled{opacity:.55;cursor:default}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .item{padding:10px 0;border-top:1px solid var(--line)}.item:first-child{border-top:0}.name{font-weight:600}.areas{color:var(--muted);font-size:.88rem}
 .badge{font-size:.72rem;font-weight:700;background:var(--newbg);color:var(--new);border-radius:6px;padding:1px 6px;margin-left:6px}
-.gone .name{text-decoration:line-through;color:var(--gone)}a{color:var(--accent)}
+.gone .name{text-decoration:line-through;color:var(--gone)}a{color:var(--accent)}#msg{margin-top:10px;font-size:.92rem}
 </style></head><body><main>
 <h1>Drone School Tracker</h1>
 <p class="sub" id="status">Loading…</p>
+<div class="card">
+  <div class="row"><button id="chk">Check now</button><button class="sec" id="tkBtn">Token</button></div>
+  <div id="msg" class="sub"></div>
+  <div id="tkBox" hidden style="margin-top:10px">
+    <p class="sub">Optional, for one-tap checks. Paste a GitHub fine-grained token that has only <b>Actions: Read and write</b> on this one repository. It is stored only in this browser. Without it, Check now opens GitHub’s Run workflow page.</p>
+    <input id="tk" type="password" placeholder="github_pat_…" autocomplete="off">
+    <div class="row" style="margin-top:8px"><button class="sec" id="tkSave">Save</button><button class="sec" id="tkDel">Remove</button></div>
+  </div>
+</div>
 <div class="card"><h2>New in the last 30 days</h2><div id="new"></div></div>
 <div class="card"><h2>All schools <small id="count" style="color:var(--muted)"></small></h2><input type="search" id="q" placeholder="Filter by name or city…"><div id="list"></div></div>
 <div class="card" id="goneCard" hidden><h2>Recently removed</h2><div id="gone"></div></div>
 <p class="sub"><a href="https://tc.canada.ca/en/aviation/drone-safety/drone-pilot-licensing/find-drone-flight-school">Transport Canada’s official list</a></p>
 </main><script>
 (function(){
+var OWNER="thegongshow",REPO="tcdroneflightschools",WF="check.yml",TK="droneTracker.token";
 var $=function(i){return document.getElementById(i)},D=null;
+var sleep=function(ms){return new Promise(function(r){setTimeout(r,ms)})};
+function tok(){try{return localStorage.getItem(TK)||""}catch(e){return ""}}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
 function isNew(s){return s.firstSeen&&(Date.now()-new Date(s.firstSeen))/864e5<=30}
 function item(s,b){return '<div class="item"><div class="name">'+esc(s.name)+(b?'<span class="badge">NEW '+esc(s.firstSeen)+'</span>':'')+'</div><div class="areas">'+esc(s.areas||"—")+'</div></div>'}
+function say(t){$("msg").textContent=t}
 function render(){
  var q=($("q").value||"").toLowerCase(),all=D.schools;
  var nw=all.filter(isNew).sort(function(a,b){return b.firstSeen.localeCompare(a.firstSeen)});
@@ -33,11 +50,4 @@ function render(){
  $("count").textContent="("+l.length+" of "+all.length+")";
  $("list").innerHTML=l.map(function(s){return item(s,isNew(s))}).join("");
  $("goneCard").hidden=!D.removed.length;
- $("gone").innerHTML=D.removed.slice(0,10).map(function(s){return '<div class="item gone"><div class="name">'+esc(s.name)+'</div><div class="areas">Removed '+esc(s.removedOn)+'</div></div>'}).join("");
-}
-fetch("schools.json?t="+Date.now()).then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(d){
- D=d;$("status").textContent="Last checked "+new Date(d.lastChecked).toLocaleString()+" · "+d.count+" schools";
- $("q").oninput=render;render();
-}).catch(function(){$("status").textContent="No data yet. Run the “Check drone schools” workflow once from the Actions tab.";$("new").parentNode.hidden=true});
-})();
-</script></body></html>
+ $("gone").innerHTML=D.removed.slice(0,10).map(function(s){return '<div class="item gone"><div class="name">'+esc(s.name)+'</div>
