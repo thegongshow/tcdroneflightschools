@@ -9,24 +9,16 @@
 main{max-width:720px;margin:0 auto;padding:16px}h1{font-size:1.4rem;margin:8px 0 2px}h2{font-size:1.05rem;margin:0 0 8px}
 .sub{color:var(--muted);font-size:.9rem;margin:0 0 14px}.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
 input{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px;font:inherit}
-button{background:var(--accent);color:var(--on);border:0;border-radius:8px;padding:11px 16px;font:inherit;font-weight:600;cursor:pointer}
-button.sec{background:transparent;color:var(--accent);border:1px solid var(--line);padding:8px 12px;font-weight:500;font-size:.9rem}
-button:disabled{opacity:.55;cursor:default}
-.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.btn{display:inline-block;background:var(--accent);color:var(--on);border-radius:8px;padding:11px 16px;font-weight:600;text-decoration:none}
 .item{padding:10px 0;border-top:1px solid var(--line)}.item:first-child{border-top:0}.name{font-weight:600}.areas{color:var(--muted);font-size:.88rem}
 .badge{font-size:.72rem;font-weight:700;background:var(--newbg);color:var(--new);border-radius:6px;padding:1px 6px;margin-left:6px}
-.gone .name{text-decoration:line-through;color:var(--gone)}a{color:var(--accent)}#msg{margin-top:10px;font-size:.92rem}
+.gone .name{text-decoration:line-through;color:var(--gone)}a{color:var(--accent)}
 </style></head><body><main>
 <h1>Drone School Tracker</h1>
 <p class="sub" id="status">Loading…</p>
 <div class="card">
-  <div class="row"><button id="chk">Check now</button><button class="sec" id="tkBtn">Token</button></div>
-  <div id="msg" class="sub"></div>
-  <div id="tkBox" hidden style="margin-top:10px">
-    <p class="sub">Optional, for one-tap checks. Paste a GitHub fine-grained token that has only <b>Actions: Read and write</b> on this one repository. It is stored only in this browser. Without it, Check now opens GitHub’s Run workflow page.</p>
-    <input id="tk" type="password" placeholder="github_pat_…" autocomplete="off">
-    <div class="row" style="margin-top:8px"><button class="sec" id="tkSave">Save</button><button class="sec" id="tkDel">Remove</button></div>
-  </div>
+  <a class="btn" id="chk" href="https://github.com/thegongshow/tcdroneflightschools/actions/workflows/check.yml" target="_blank" rel="noopener">Check now</a>
+  <p class="sub" style="margin:10px 0 0">Opens GitHub. Tap <b>Run workflow</b> there, wait about 2 minutes, then come back here and the list will refresh.</p>
 </div>
 <div class="card"><h2>New in the last 30 days</h2><div id="new"></div></div>
 <div class="card"><h2>All schools <small id="count" style="color:var(--muted)"></small></h2><input type="search" id="q" placeholder="Filter by name or city…"><div id="list"></div></div>
@@ -34,20 +26,27 @@ button:disabled{opacity:.55;cursor:default}
 <p class="sub"><a href="https://tc.canada.ca/en/aviation/drone-safety/drone-pilot-licensing/find-drone-flight-school">Transport Canada’s official list</a></p>
 </main><script>
 (function(){
-var OWNER="thegongshow",REPO="tcdroneflightschools",WF="check.yml",TK="droneTracker.token";
 var $=function(i){return document.getElementById(i)},D=null;
-var sleep=function(ms){return new Promise(function(r){setTimeout(r,ms)})};
-function tok(){try{return localStorage.getItem(TK)||""}catch(e){return ""}}
+window.onerror=function(m){$("status").textContent="Error: "+m};
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
 function isNew(s){return s.firstSeen&&(Date.now()-new Date(s.firstSeen))/864e5<=30}
 function item(s,b){return '<div class="item"><div class="name">'+esc(s.name)+(b?'<span class="badge">NEW '+esc(s.firstSeen)+'</span>':'')+'</div><div class="areas">'+esc(s.areas||"—")+'</div></div>'}
-function say(t){$("msg").textContent=t}
 function render(){
  var q=($("q").value||"").toLowerCase(),all=D.schools;
  var nw=all.filter(isNew).sort(function(a,b){return b.firstSeen.localeCompare(a.firstSeen)});
  $("new").innerHTML=nw.length?nw.map(function(s){return item(s,1)}).join(""):'<p class="sub">'+(D.baseline?"Baseline recorded. New schools will appear here from the next change.":"Nothing new in the last 30 days.")+'</p>';
- var l=all.filter(function(s){return !q||(s.name+" "+s.areas).toLowerCase().indexOf(q)>-1});
+ var l=all.filter(function(s){return !q||(s.name+" "+(s.areas||"")).toLowerCase().indexOf(q)>-1});
  $("count").textContent="("+l.length+" of "+all.length+")";
  $("list").innerHTML=l.map(function(s){return item(s,isNew(s))}).join("");
- $("goneCard").hidden=!D.removed.length;
- $("gone").innerHTML=D.removed.slice(0,10).map(function(s){return '<div class="item gone"><div class="name">'+esc(s.name)+'</div>
+ $("goneCard").hidden=!(D.removed&&D.removed.length);
+ $("gone").innerHTML=(D.removed||[]).slice(0,10).map(function(s){return '<div class="item gone"><div class="name">'+esc(s.name)+'</div><div class="areas">Removed '+esc(s.removedOn)+'</div></div>'}).join("");
+ $("status").textContent="Last checked "+new Date(D.lastChecked).toLocaleString()+" · "+D.count+" schools";
+}
+function load(){
+ fetch("schools.json?t="+Date.now()).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}).then(function(d){D=d;render()}).catch(function(e){$("status").textContent="Couldn’t load the list ("+e.message+"). Pull down to reload."});
+}
+$("q").oninput=function(){if(D)render()};
+document.addEventListener("visibilitychange",function(){if(!document.hidden)load()});
+load();
+})();
+</script></body></html>
