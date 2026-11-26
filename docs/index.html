@@ -9,7 +9,8 @@
 main{max-width:720px;margin:0 auto;padding:16px}h1{font-size:1.4rem;margin:8px 0 2px}h2{font-size:1.05rem;margin:0 0 8px}
 .sub{color:var(--muted);font-size:.9rem;margin:0 0 14px}.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
 input{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px;font:inherit}
-.btn{display:inline-block;background:var(--accent);color:var(--on);border-radius:8px;padding:11px 16px;font-weight:600;text-decoration:none}
+button{background:var(--accent);color:var(--on);border:0;border-radius:8px;padding:11px 16px;font:inherit;font-weight:600;cursor:pointer}
+button:disabled{opacity:.55;cursor:default}
 .item{padding:10px 0;border-top:1px solid var(--line)}.item:first-child{border-top:0}.name{font-weight:600}.areas{color:var(--muted);font-size:.88rem}
 .badge{font-size:.72rem;font-weight:700;background:var(--newbg);color:var(--new);border-radius:6px;padding:1px 6px;margin-left:6px}
 .gone .name{text-decoration:line-through;color:var(--gone)}a{color:var(--accent)}
@@ -17,8 +18,8 @@ input{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--l
 <h1>Drone School Tracker</h1>
 <p class="sub" id="status">Loading…</p>
 <div class="card">
-  <a class="btn" id="chk" href="https://github.com/thegongshow/tcdroneflightschools/actions/workflows/check.yml" target="_blank" rel="noopener">Check now</a>
-  <p class="sub" style="margin:10px 0 0">Opens GitHub. Tap <b>Run workflow</b> there, wait about 2 minutes, then come back here and the list will refresh.</p>
+  <button id="chk">Check now</button>
+  <p class="sub" id="msg" style="margin:10px 0 0"></p>
 </div>
 <div class="card"><h2>New in the last 30 days</h2><div id="new"></div></div>
 <div class="card"><h2>All schools <small id="count" style="color:var(--muted)"></small></h2><input type="search" id="q" placeholder="Filter by name or city…"><div id="list"></div></div>
@@ -26,8 +27,12 @@ input{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--l
 <p class="sub"><a href="https://tc.canada.ca/en/aviation/drone-safety/drone-pilot-licensing/find-drone-flight-school">Transport Canada’s official list</a></p>
 </main><script>
 (function(){
+var OWNER="thegongshow",REPO="tcdroneflightschools",WF="check.yml",TK="droneTracker.token";
 var $=function(i){return document.getElementById(i)},D=null;
 window.onerror=function(m){$("status").textContent="Error: "+m};
+function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
+function tok(){try{return localStorage.getItem(TK)||""}catch(e){return ""}}
+function say(t){$("msg").textContent=t}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
 function isNew(s){return s.firstSeen&&(Date.now()-new Date(s.firstSeen))/864e5<=30}
 function item(s,b){return '<div class="item"><div class="name">'+esc(s.name)+(b?'<span class="badge">NEW '+esc(s.firstSeen)+'</span>':'')+'</div><div class="areas">'+esc(s.areas||"—")+'</div></div>'}
@@ -43,10 +48,55 @@ function render(){
  $("status").textContent="Last checked "+new Date(D.lastChecked).toLocaleString()+" · "+D.count+" schools";
 }
 function load(){
- fetch("schools.json?t="+Date.now()).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}).then(function(d){D=d;render()}).catch(function(e){$("status").textContent="Couldn’t load the list ("+e.message+"). Pull down to reload."});
+ return fetch("schools.json?t="+Date.now()).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}).then(function(d){D=d;render();return d}).catch(function(e){$("status").textContent="Couldn’t load the list ("+e.message+"). Pull down to reload.";return null});
 }
+function api(path,opts){
+ opts=opts||{};opts.headers={"Authorization":"Bearer "+tok(),"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"};
+ return fetch("https://api.github.com/repos/"+OWNER+"/"+REPO+path,opts);
+}
+function pollRun(t0,n){
+ if(n>75)return Promise.resolve(null);
+ return sleep(8000).then(function(){return api("/actions/workflows/"+WF+"/runs?event=workflow_dispatch&per_page=3")})
+ .then(function(r){return r.ok?r.json():{workflow_runs:[]}}).then(function(j){
+  var run=(j.workflow_runs||[]).filter(function(x){return new Date(x.created_at).getTime()>=t0-30000})[0];
+  if(run&&run.status==="completed")return run;
+  say(run?"Checking Transport Canada’s list… ("+Math.round((Date.now()-t0)/1000)+"s)":"Waiting for GitHub to start…");
+  return pollRun(t0,n+1);
+ });
+}
+function pollData(before,n){
+ return load().then(function(d){
+  if((d&&d.lastChecked!==before)||n>=20)return d;
+  return sleep(10000).then(function(){return pollData(before,n+1)});
+ });
+}
+function checkNow(){
+ if(!tok()){say("This device isn’t set up for one-tap checks yet. Open the setup link you were given once, then try again.");return}
+ var t0=Date.now(),before=D?D.lastChecked:null,btn=$("chk");
+ btn.disabled=true;say("Starting a check…");
+ api("/actions/workflows/"+WF+"/dispatches",{method:"POST",body:JSON.stringify({ref:"main"})}).then(function(r){
+  if(r.status===401||r.status===403||r.status===404)throw new Error("GitHub rejected the saved token. It may have expired.");
+  if(r.status!==204)throw new Error("Couldn’t start the check (error "+r.status+").");
+  return pollRun(t0,0);
+ }).then(function(run){
+  if(!run||run.status!=="completed"){say("Still running. Reload this page in a minute or two.");return}
+  if(run.conclusion!=="success"){say("The check failed. Your saved list is unchanged.");return}
+  say("Check finished. Updating the list…");
+  return pollData(before,0).then(function(d){
+   if(!d||d.lastChecked===before){say("The check finished but the page hasn’t updated yet. Reload in a minute.");return}
+   var day=d.lastChecked.slice(0,10),n=d.schools.filter(function(s){return s.firstSeen===day}).length;
+   say(n?("Done. "+n+" new school"+(n===1?"":"s")+" found."):"Done. No new schools.");
+  });
+ }).catch(function(e){say(e.message)}).then(function(){btn.disabled=false});
+}
+// One-time setup: open the page with #token=... and it is saved, then removed from the address bar.
+(function(){
+ var m=/[#&]token=([^&]+)/.exec(location.hash||"");
+ if(m){try{localStorage.setItem(TK,decodeURIComponent(m[1]));say("Setup complete. You can now use Check now.")}catch(e){say("Couldn’t save the setup on this browser.")}
+  try{history.replaceState(null,"",location.pathname+location.search)}catch(e){}}
+})();
+$("chk").onclick=checkNow;
 $("q").oninput=function(){if(D)render()};
-document.addEventListener("visibilitychange",function(){if(!document.hidden)load()});
 load();
 })();
 </script></body></html>
